@@ -1,0 +1,183 @@
+<?php
+
+/**
+ * @file
+ * Chef Data Bag
+ * Defines Drupal entities for Chef data bag objects.
+ */
+
+
+/**
+ * Implements hook_entity_info().
+ */
+function chef_databag_entity_info() {
+  $return = array();
+
+  // data_bag items are converted to/from JSON stored in Chef server.
+  $return['chef_databag_item'] = array(
+    'label' => t('Chef data_bag item'),
+    'entity class' => 'ChefDatabagItem',
+    'controller class' => 'ChefDatabagItemController',
+    'base table' => 'chef_databag_item',
+    'fieldable' => TRUE,
+    'entity keys' => array(
+      'id' => 'drupal_id',
+      'bundle' => 'data_bag',
+    ),
+    'bundles' => array(),
+    'bundle keys' => array(
+      'bundle' => 'name',
+    ),
+    'label callback' => 'entity_class_label',
+    'uri callback' => 'entity_class_uri',
+    'creation callback' => 'chef_databag_item_create',
+    'access callback' => 'chef_databag_item_access',
+    'module' => 'chef_databag',
+    'admin ui' => array(
+      'path' => 'chef_databag_item',
+      'file' => 'chef_databag.admin.inc',
+      'controller class' => 'ChefDatabagItemUIController',
+      'menu wildcard' => '%chef_databag_item',
+    ),
+  );
+
+  // data_bags are defined in Chef server and contain data_bag items.
+  $return['chef_databag'] = array(
+    'label' => t('Chef data_bag'),
+    'entity class' => 'ChefDatabag',
+    'controller class' => 'ChefDatabagController',
+    'base table' => 'chef_databag',
+    'fieldable' => FALSE,
+    'bundle of' => 'chef_databag_item',
+    'exportable' => TRUE,
+    'entity keys' => array(
+      'id' => 'drupal_id',
+      'label' => 'name',
+      'name' => 'name',
+    ),
+    'access callback' => 'chef_databag_access',
+    'module' => 'chef_databag',
+    // Enable the entity API's admin UI.
+    'admin ui' => array(
+      'path' => 'admin/structure/chef_databag',
+      'file' => 'chef_databag.admin.inc',
+      'controller class' => 'ChefDatabagUIController',
+      'menu wildcard' => '%chef_databag',
+    ),
+  );
+
+  return $return;
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * We are adding the info about the data_bags via a hook to avoid a recursion
+ * issue as loading the data_bags requires the entity info as well.
+ */
+function chef_databag_entity_info_alter(&$entity_info) {
+  foreach (chef_databag_get_databags() as $name => $info) {
+    $entity_info['chef_databag_item']['bundles'][$name] = array(
+      'name' => $info->name,
+      'label' => $info->name,
+      // The admin array helps field_ui know which menu items to add. Use the
+      // definitions from the chef_databag entity info.
+      'admin' => array(
+        'path' => $entity_info['chef_databag']['admin ui']['path'] . '/manage/' . $entity_info['chef_databag']['admin ui']['menu wildcard'],
+        'bundle argument' => count(explode('/', $entity_info['chef_databag']['admin ui']['path'])) + 1,
+        'real path' => $entity_info['chef_databag']['admin ui']['path'] . '/manage/' . $info->name,
+        'access arguments' => array('administer data_bags'),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_menu_local_tasks_alter().
+ */
+function chef_databag_menu_local_tasks_alter(&$data, $router_item, $root_path) {
+  // Add action link to 'node/add' on 'admin/content' page.
+  if ($root_path == 'admin/content/chef_databag_item') {
+    $item = menu_get_item('chef_databag_item/add');
+    if ($item['access']) {
+      $data['actions']['output'][] = array(
+        '#theme' => 'menu_local_action',
+        '#link' => $item,
+      );
+    }
+  }
+}
+
+/**
+ * Access callback for chef_databag_item entity.
+ */
+function chef_databag_item_access($op, $databag_item = NULL, $account = NULL) {
+  if (user_access('administer data_bags', $account)) {
+    return TRUE;
+  }
+  elseif (isset($databag_item)) {
+    $data_bag = $databag_item->data_bag;
+    $op = ($op == 'view') ? 'view' : 'edit';
+    if (user_access("$op any $data_bag data_bag item", $account)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Load callback for chef_databag_item (by drupal_id).
+ */
+function chef_databag_item_load($drupal_id) {
+  $entity = entity_load('chef_databag_item', array($drupal_id));
+  return reset($entity);
+}
+
+/**
+ * Create a chef_databag_item entity.
+ */
+function chef_databag_item_create($values = array()) {
+  return entity_get_controller('chef_databag_item')->create($values);
+}
+
+/**
+ * Determines if a data_bag item exists.
+ */
+function chef_databag_item_exists($id) {
+  return (bool) db_query_range('SELECT 1 FROM {chef_databag_item} WHERE id = :id', 0, 1, array(':id' => $id))->fetchField();
+}
+
+/**
+ * Access callback for chef_databag entity.
+ */
+function chef_databag_access($op, $databag = NULL, $account = NULL) {
+  return user_access('administer data_bags', $account);
+}
+
+/**
+ * Load callback for chef_databag (by name).
+ */
+function chef_databag_load($name) {
+  return chef_databag_get_databags($name);
+}
+
+/**
+ * Gets an array of all data_bags, keyed by data_bag name.
+ *
+ * @param $name
+ *   If set, the data_bag with the given name is returned.
+ *
+ * @return ChefDatabag[]
+ *   Depending whether $data_bag isset, an array of data_bags or a single one.
+ */
+function chef_databag_get_databags($name = NULL) {
+  $data_bags = entity_load_multiple_by_name('chef_databag', isset($name) ? array($name) : FALSE);
+  return isset($name) ? reset($data_bags) : $data_bags;
+}
+
+/**
+ * Determines if a data_bag exists.
+ */
+function chef_databag_exists($data_bag) {
+  return (bool) db_query_range('SELECT 1 FROM {chef_databag} WHERE name = :name', 0, 1, array(':name' => $data_bag))->fetchField();
+}

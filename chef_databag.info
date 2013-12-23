@@ -1,0 +1,10 @@
+name = Chef Data Bag
+description = Defines Drupal entities for Chef data bag objects.
+package = Chef
+core = 7.x
+
+dependencies[] = chef_knife
+dependencies[] = entity
+
+files[] = chef_databag.admin.inc
+files[] = chef_databag.entities.inc

@@ -1,0 +1,109 @@
+<?php
+
+/**
+ * @file
+ * Install hooks for chef_databag module.
+ */
+
+
+/**
+ * Implements hook_schema().
+ */
+function chef_databag_schema() {
+  $schema = array();
+
+  $schema['chef_databag_item'] = array(
+    'description' => 'The base table for Chef data_bag items.',
+    'fields' => array(
+      'drupal_id' => array(
+        'description' => 'Primary Key: Drupal identifier for a data_bag item.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'id' => array(
+        'description' => 'The ID of the data_bag item.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'data_bag' => array(
+        'description' => 'The {chef_databag}.name of this data_bag item.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'language' => array(
+        'description' => 'The language of the data_bag item.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the entity was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'changed' => array(
+        'description' => 'The Unix timestamp when the entity was most recently saved.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'data' => array(
+        'description' => 'A serialized array of additional data.',
+        'type' => 'blob',
+        'not null' => FALSE,
+        'size' => 'big',
+        'serialize' => TRUE,
+      ),
+    ),
+    'primary key' => array('drupal_id'),
+    'unique keys' => array(
+      'chef' => array('data_bag', 'id'),
+    ),
+    'indexes' => array(
+      'data_bag' => array('data_bag'),
+    ),
+  );
+
+  $schema['chef_databag'] = array(
+    'description' => 'Stores information about defined Chef data_bags.',
+    'fields' => array(
+      'drupal_id' => array(
+        'description' => 'Primary Key: Drupal identifier for a data_bag.',
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'description' => 'The machine-readable name of the data_bag.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'weight' => array(
+        'description' => 'The weight of this data_bag in relation to others.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'data' => array(
+        'description' => 'A serialized array of additional data.',
+        'type' => 'blob',
+        'not null' => FALSE,
+        'size' => 'big',
+        'serialize' => TRUE,
+      ),
+    ) + entity_exportable_schema_fields(),
+    'primary key' => array('drupal_id'),
+    'unique keys' => array(
+      'name' => array('name'),
+    ),
+  );
+
+  return $schema;
+}
