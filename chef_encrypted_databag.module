@@ -1,0 +1,249 @@
+<?php
+
+/**
+ * @file
+ * Chef Encrypted Data Bag
+ * Extends chef_databag to support shared-secret encryption.
+ */
+
+
+/**
+ * The name of the entityreference field.
+ */
+define('CHEF_ENCRYPTED_DATABAG_FIELD', 'field_chef_shared_secret');
+
+/**
+ * The default Chef encryption version.
+ */
+define('CHEF_ENCRYPTED_DATABAG_ENCRYPT_VERSION', 1);
+
+/**
+ * The default Chef encryption cipher.
+ */
+define('CHEF_ENCRYPTED_DATABAG_ENCRYPT_CIPHER', 'aes-256-cbc');
+
+/**
+ * Implements hook_chef_databag_save_alter().
+ */
+function chef_encrypted_databag_chef_databag_save_alter(&$data, $databag_item) {
+  // Does the databag_item have a shared secret configured?
+  if ($shared_secret = field_get_items('chef_databag_item', $databag_item, CHEF_ENCRYPTED_DATABAG_FIELD)) {
+    // Grab the first shared_secret entity from the array.
+    $shared_secret = reset($shared_secret);
+    // Encrypt all keys in $data array.
+    $encrypted = array();
+    unset($data[CHEF_ENCRYPTED_DATABAG_FIELD]);
+    foreach ($data as $key => $item) {
+      if ($key === 'id') {
+        $encrypted[$key] = $item;
+      }
+      else {
+        // Create initialization vector for this item.
+        $iv = chef_encrypted_databag_create_iv();
+        // Add structured array.
+        $encrypted[$key] = array(
+          'encrypted_data' => chef_encrypted_databag_encrypt($item, $iv, $shared_secret['entity']),
+          'iv' => base64_encode($iv),
+          'version' => CHEF_ENCRYPTED_DATABAG_ENCRYPT_VERSION,
+          'cipher' => CHEF_ENCRYPTED_DATABAG_ENCRYPT_CIPHER,
+        );
+      }
+    }
+    // Replace data with the encrypted data array.
+    $data = $encrypted;
+  }
+}
+
+/**
+ * Encrypts a plaintext string using a shared secret.
+ *
+ * @param $plaintext_data
+ *   String of plain text to encrypt.
+ * @param $iv
+ *   Raw data form of initialization vector.
+ * @param $shared_secret
+ *   ChefSharedSecret entity object.
+ * @param $base64
+ *   Return raw data or base64-encoded string. Defaults to base64-encoded.
+ *
+ * @return
+ *   Encrypted form of the $plaintext_data string, either as raw data or a
+ *   base64-encoded encrypted string, depending on the $base64 parameter.
+ */
+function chef_encrypted_databag_encrypt($plaintext_data, $iv, $shared_secret, $base64 = TRUE) {
+  // Wrap the decrypted data in "json_wrapper" per Chef spec.
+  $serialized_data = json_encode(array('json_wrapper' => $plaintext_data));
+
+  // Add PKCS7 padding.
+  $serialized_data = chef_encrypted_databag_pkcs7_pad($serialized_data);
+
+  // Encrypt the serialized data.
+  $encrypted = mcrypt_encrypt(MCRYPT_RIJNDAEL_128, $shared_secret->hash(TRUE), $serialized_data, MCRYPT_MODE_CBC, $iv);
+
+  // Return encrypted data.
+  return ($base64) ? base64_encode($encrypted) : $encrypted;
+}
+
+/**
+ * Decrypts an encrypted string using a shared secret.
+ *
+ * @param $encrypted_data
+ *   Encrypted data to decrypt.
+ * @param $iv
+ *   Initialization vector.
+ * @param $shared_secret
+ *   ChefSharedSecret entity object.
+ * @param $decode_base64
+ *   Optionally decode $encrypted_data and $iv from base64. Defaults to TRUE.
+ *
+ * @return
+ *   Decrypted (plain text) string, or FALSE if failure.
+ */
+function chef_encrypted_databag_decrypt($encrypted_data, $iv, $shared_secret, $decode_base64 = TRUE) {
+  // Decode the base64 data.
+  $encrypted = ($decode_base64) ? base64_decode($encrypted_data) : $encrypted_data;
+  $iv = ($decode_base64) ? base64_decode($iv) : $iv;
+
+  // Decrypt with shared secret.
+  $decrypted = mcrypt_decrypt(MCRYPT_RIJNDAEL_128, $shared_secret->hash(TRUE), $encrypted, MCRYPT_MODE_CBC, $iv);
+
+  if (!empty($decrypted)) {
+    // Trim the PKCS7 padding.
+    $decrypted = chef_encrypted_databag_pkcs7_unpad($decrypted);
+
+    // Remove the JSON wrapper, if present.
+    if ($json_decrypted = json_decode($decrypted)) {
+      if (isset($json_decrypted->json_wrapper)) {
+        $decrypted = $json_decrypted->json_wrapper;
+      }
+    }
+  }
+
+  // Return plaintext data.
+  return $decrypted;
+}
+
+/**
+ * Creates an initialization vector (IV) from a random source.
+ *
+ * @return
+ *   Raw data.
+ */
+function chef_encrypted_databag_create_iv() {
+  $size = mcrypt_get_iv_size(MCRYPT_RIJNDAEL_128, MCRYPT_MODE_CBC);
+  return mcrypt_create_iv($size, MCRYPT_DEV_URANDOM);
+}
+
+/**
+ * Appends PKCS7 padding scheme to encrypted data.
+ */
+function chef_encrypted_databag_pkcs7_pad($encrypted_data) {
+  $blocksize = mcrypt_get_block_size(MCRYPT_RIJNDAEL_128, MCRYPT_MODE_CBC);
+  $padding = $blocksize - (strlen($encrypted_data) % $blocksize);
+  return $encrypted_data . str_repeat(chr($padding), $padding);
+}
+
+/**
+ * Removes PKCS7 padding scheme from decrypted data.
+ */
+function chef_encrypted_databag_pkcs7_unpad($decrypted_data) {
+  $blocksize = mcrypt_get_block_size(MCRYPT_RIJNDAEL_128, MCRYPT_MODE_CBC);
+  $length = strlen($decrypted_data);
+  $packing = ord($decrypted_data{$length - 1});
+  if ($packing && ($packing < $blocksize)) {
+    for ($p = $length - 1; $p >= $length - $packing; $p--) {
+      if (ord($decrypted_data{$p}) != $packing) {
+        $packing = 0;
+      }
+    }
+  }
+  return substr($decrypted_data, 0, $length - $packing);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for chef_databag_item_form().
+ */
+function chef_encrypted_databag_form_chef_databag_form_alter(&$form, $form_state) {
+  // Get the data_bag entity.
+  $data_bag = isset($form_state['chef_databag']) ? $form_state['chef_databag'] : entity_get_controller('chef_databag')->create();
+  // Add the checkbox to the form.
+  $form['chef_encrypted_databag'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Encrypted data bag'),
+    '#description' => t('Items in this data bag are encrypted using !link.', array('!link' => l(t('shared secrets'), 'admin/structure/chef_shared_secret'))),
+    '#default_value' => chef_encrypted_databag_entityreference_exists($data_bag),
+    '#disabled' => chef_encrypted_databag_entityreference_exists($data_bag),
+  );
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function chef_encrypted_databag_entity_insert($entity, $type) {
+  // Just call hook_entity_update().
+  if ($type === 'chef_databag') {
+    chef_encrypted_databag_entity_update($entity, $type);
+  }
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function chef_encrypted_databag_entity_update($entity, $type) {
+  if ($type === 'chef_databag') {
+    if (!empty($entity->chef_encrypted_databag) && !chef_encrypted_databag_entityreference_exists($entity)) {
+      // Add the entityreference field.
+      chef_encrypted_databag_entityreference_add($entity);
+    }
+  }
+}
+
+/**
+ * Returns TRUE if the entity has the required entityreference field.
+ */
+function chef_encrypted_databag_entityreference_exists($entity) {
+  $field_info_map = field_info_field_map();
+  // Are there any instances of this field on chef_databag_item bundles?
+  if (isset($field_info_map[CHEF_ENCRYPTED_DATABAG_FIELD]['bundles']['chef_databag_item'])) {
+    // Search the array for this entity.
+    $result = array_search($entity->name, $field_info_map[CHEF_ENCRYPTED_DATABAG_FIELD]['bundles']['chef_databag_item']);
+    if ($result !== FALSE) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Adds the entityreference field to the chef_databag entity bundle.
+ */
+function chef_encrypted_databag_entityreference_add($entity) {
+  $field_info_map = field_info_field_map();
+  if (!isset($field_info_map[CHEF_ENCRYPTED_DATABAG_FIELD])) {
+    $field = array(
+      'field_name' => CHEF_ENCRYPTED_DATABAG_FIELD,
+      'type' => 'entityreference',
+      'cardinality' => 1,
+      'settings' => array(
+        'target_type' => 'chef_shared_secret',
+        'handler_settings' => array('target_bundles' => NULL),
+      ),
+    );
+    field_create_field($field);
+  }
+  $instance = array(
+    'field_name' => CHEF_ENCRYPTED_DATABAG_FIELD,
+    'entity_type' => 'chef_databag_item',
+    'bundle' => $entity->name,
+    'label' => 'Shared secret',
+    'widget' => array(
+      'type' => 'options_select',
+    ),
+    'required' => TRUE,
+    'settings' => array(
+      'target_type' => 'chef_shared_secret',
+      'handler_settings' => array('target_bundles' => NULL),
+    ),
+  );
+  field_create_instance($instance);
+}

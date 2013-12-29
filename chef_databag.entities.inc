@@ -77,6 +77,10 @@ class ChefDatabagItemController extends EntityAPIController {
     // Convert the entity to an array that will become JSON.
     $data = $this->view_json($entity, FALSE);
 
+    // Allow the json-prepped data to be altered.
+    // @see chef_encrypted_databag_chef_databag_save_alter()
+    drupal_alter('chef_databag_save', $data, $entity);
+
     // Check whether this data bag item already exists on Chef server.
     try {
       if (chef_knife('data/' . $entity->data_bag . '/' . $entity->id)) {
@@ -95,7 +99,7 @@ class ChefDatabagItemController extends EntityAPIController {
   /**
    * Format entity for inclusion in JSON output.
    */
-  public function view_json($entity, $output = TRUE) {
+  public function view_json($entity, $output = FALSE) {
     $return = array(
       'id' => $entity->id,
       'drupal_id' => $entity->drupal_id,
@@ -149,7 +153,7 @@ class ChefDatabagController extends EntityAPIControllerExportable {
     parent::__construct($entityType);
   }
 
-   /**
+  /**
    * Create a chef_databag.
    *
    * @return

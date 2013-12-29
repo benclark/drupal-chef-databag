@@ -1,0 +1,9 @@
+name = Chef Encrypted Data Bag
+description = Extends chef_databag to support shared-secret encryption.
+package = Chef
+core = 7.x
+
+dependencies[] = chef_databag
+dependencies[] = chef_shared_secret
+dependencies[] = ctools
+dependencies[] = entityreference
