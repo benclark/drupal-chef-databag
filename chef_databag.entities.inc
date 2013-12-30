@@ -128,20 +128,24 @@ class ChefDatabagItemController extends EntityAPIController {
     $return = array();
 
     switch ($field_data['#field_type']) {
-      case 'entityreference':
-        foreach ($field_data['#items'] as $key => $value) {
-          $return[] = $field_data[$key]['#markup'];
-        }
-        break;
-
       default:
         foreach ($field_data['#items'] as $key => $value) {
-          $return[] = $field_data[$key]['#markup'];
+          // If this field value does not have a #markup rendered value, use
+          // the raw value in the #items array.
+          if (!isset($field_data[$key]['#markup'])) {
+            $return[$key] = $field_data['#items'][$key]['value'];
+          }
+          else {
+            // Prefer the #markup rendered value.
+            $return[$key] = $field_data[$key]['#markup'];
+          }
         }
         break;
     }
 
-    return (count($return) > 1) ? $return : reset($return);
+    // If there is only one item in the array, and it is indexed '0' then just
+    // return the singleton value.
+    return (!isset($return[0]) || count($return) > 1) ? $return : reset($return);
   }
 }
 
