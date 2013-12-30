@@ -1,0 +1,27 @@
+<?php
+
+/**
+ * @file
+ * Install hooks for chef_encrypted_databag module.
+ */
+
+
+/**
+ * Implements hook_install().
+ */
+function chef_encrypted_databag_install() {
+  db_update('system')
+    ->fields(array('weight' => 10))
+    ->condition('name', 'chef_encrypted_databag', '=')
+    ->execute();
+}
+
+/**
+ * Adjust module weight.
+ */
+function chef_encrypted_databag_update_7001(&$sandbox) {
+  db_update('system')
+    ->fields(array('weight' => 10))
+    ->condition('name', 'chef_encrypted_databag', '=')
+    ->execute();
+}
