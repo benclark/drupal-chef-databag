@@ -73,6 +73,9 @@ function chef_databag_item_form($form, &$form_state, $databag_item, $op = 'edit'
     '#default_value' => $databag_item->id,
     '#machine_name' => array(
       'exists' => 'chef_databag_item_exists',
+      'replace_pattern' => '[^a-z0-9_\-]+',
+      'replace' => '-',
+      'error' => t('The machine-readable name must contain only lowercase letters, numbers, underscores, and hyphens.'),
     ),
     '#disabled' => ($op == 'edit'),
   );
@@ -128,6 +131,9 @@ function chef_databag_form($form, &$form_state, $data_bag, $op = 'edit') {
     '#default_value' => $data_bag->name,
     '#machine_name' => array(
       'exists' => 'chef_databag_exists',
+      'replace_pattern' => '[^a-z0-9_\-]+',
+      'replace' => '-',
+      'error' => t('The machine-readable name must contain only lowercase letters, numbers, underscores, and hyphens.'),
     ),
     '#disabled' => ($op == 'edit'),
   );
