@@ -128,12 +128,18 @@ class ChefDatabagItemController extends EntityAPIController {
     $return = array();
 
     switch ($field_data['#field_type']) {
+      case 'list_boolean':
+        foreach ($field_data['#items'] as $key => $value) {
+          $return[$key] = (bool) $value['value'];
+        }
+        break;
+
       default:
         foreach ($field_data['#items'] as $key => $value) {
           // If this field value does not have a #markup rendered value, use
           // the raw value in the #items array.
           if (!isset($field_data[$key]['#markup'])) {
-            $return[$key] = $field_data['#items'][$key]['value'];
+            $return[$key] = $value['value'];
           }
           else {
             // Prefer the #markup rendered value.
